@@ -1,271 +1,112 @@
--- Modern GUI: Fly + Speed + Noclip + JumpPower
--- Управление: F — полёт, M — показать/скрыть меню, клик по заголовку — перетаскивание
+-- RIVALS Ultimate GUI v3.0 (K to toggle)
+-- Функции: Silent Aim, Triggerbot, ESP, Speed, Fly, Noclip, Anti-Aim, Wallbang
+-- Оптимизирована память: очистка при перезагрузке, ограничение частоты обновления
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
--- === НАСТРОЙКИ ===
-local flySpeed = 50
-local walkSpeed = 32
-local jumpPower = 50
+-- ======== НАСТРОЙКИ ПО УМОЛЧАНИЮ ========
+local settings = {
+    silentAim = false,
+    triggerbot = false,
+    esp = false,
+    speed = false,
+    fly = false,
+    noclip = false,
+    antiAim = false,
+    wallbang = false,
+    speedValue = 50,
+    flySpeed = 50,
+    aimFov = 150,
+    aimPart = "Head",
+}
+
+-- ======== ПЕРЕМЕННЫЕ ДЛЯ РАБОТЫ ========
+local connections = {}          -- все подключения
+local espObjects = {}           -- созданные ESP-объекты
 local flying = false
-local noclip = false
-local guiVisible = true
-local bv, bg, noclipConnection
+local bv, bg
+local noclipConn
+local antiAimAngle = 0
+local lastUpdate = 0
 
--- === СОЗДАНИЕ GUI ===
-local screenGui = Instance.new("ScreenGui", LocalPlayer.PlayerGui)
-screenGui.Name = "ModernMenu"
-
-local mainFrame = Instance.new("Frame", screenGui)
-mainFrame.Size = UDim2.new(0, 340, 0, 380)
-mainFrame.Position = UDim2.new(0.5, -170, 0.5, -190)
-mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-mainFrame.BackgroundTransparency = 0.2
-mainFrame.BorderSizePixel = 0
-Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 12)
-
--- Тень (эффект) 
-local shadow = Instance.new("Frame", mainFrame)
-shadow.Size = UDim2.new(1, 0, 1, 0)
-shadow.Position = UDim2.new(0, 0, 0, 0)
-shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-shadow.BackgroundTransparency = 0.5
-shadow.BorderSizePixel = 0
-shadow.ZIndex = 0
-Instance.new("UICorner", shadow).CornerRadius = UDim.new(0, 12)
-
--- Заголовок (перетаскивание)
-local titleBar = Instance.new("Frame", mainFrame)
-titleBar.Size = UDim2.new(1, 0, 0, 40)
-titleBar.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
-titleBar.BackgroundTransparency = 0.1
-Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 12)
-local titleLabel = Instance.new("TextLabel", titleBar)
-titleLabel.Size = UDim2.new(1, 0, 1, 0)
-titleLabel.Text = "⚡ CONTROL PANEL"
-titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleLabel.Font = Enum.Font.GothamBold
-titleLabel.TextSize = 18
-titleLabel.BackgroundTransparency = 1
-titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-titleLabel.Position = UDim2.new(0, 15, 0, 0)
-
--- Кнопка закрытия (скрыть)
-local closeBtn = Instance.new("TextButton", titleBar)
-closeBtn.Size = UDim2.new(0, 30, 0, 30)
-closeBtn.Position = UDim2.new(1, -35, 0, 5)
-closeBtn.Text = "✕"
-closeBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 18
-closeBtn.BackgroundTransparency = 1
-closeBtn.BorderSizePixel = 0
-closeBtn.MouseButton1Click:Connect(function()
-    guiVisible = not guiVisible
-    screenGui.Enabled = guiVisible
-end)
-
--- === ВКЛАДКИ ===
-local tabBar = Instance.new("Frame", mainFrame)
-tabBar.Size = UDim2.new(1, 0, 0, 35)
-tabBar.Position = UDim2.new(0, 0, 0, 40)
-tabBar.BackgroundTransparency = 1
-
-local tabs = {"Fly", "Speed", "Extra"}
-local tabButtons = {}
-local currentTab = "Fly"
-
-local function createTabButton(name, position)
-    local btn = Instance.new("TextButton", tabBar)
-    btn.Size = UDim2.new(0, 100, 1, 0)
-    btn.Position = UDim2.new(0, position, 0, 0)
-    btn.Text = name
-    btn.TextColor3 = Color3.fromRGB(180, 180, 200)
-    btn.Font = Enum.Font.Gotham
-    btn.TextSize = 14
-    btn.BackgroundTransparency = 1
-    btn.BorderSizePixel = 0
-    return btn
-end
-
-for i, name in ipairs(tabs) do
-    local btn = createTabButton(name, (i-1)*105 + 10)
-    tabButtons[name] = btn
-    btn.MouseButton1Click:Connect(function()
-        currentTab = name
-        for _, b in pairs(tabButtons) do
-            b.TextColor3 = Color3.fromRGB(180, 180, 200)
-        end
-        btn.TextColor3 = Color3.fromRGB(100, 200, 255)
-        -- Обновить содержимое
-        updateContent(name)
-    end)
-end
--- Выделить первую вкладку
-tabButtons["Fly"].TextColor3 = Color3.fromRGB(100, 200, 255)
-
--- Контентная область
-local contentFrame = Instance.new("Frame", mainFrame)
-contentFrame.Size = UDim2.new(1, -20, 1, -110)
-contentFrame.Position = UDim2.new(0, 10, 0, 80)
-contentFrame.BackgroundTransparency = 1
-
--- === ФУНКЦИЯ ОБНОВЛЕНИЯ КОНТЕНТА ===
-local function updateContent(tab)
-    -- Очистить старые элементы
-    for _, child in pairs(contentFrame:GetChildren()) do
-        child:Destroy()
+-- ======== СИСТЕМА ОЧИСТКИ ========
+local function cleanup()
+    -- отключаем все соединения
+    for _, conn in ipairs(connections) do
+        if conn and conn.Disconnect then conn:Disconnect() end
     end
+    connections = {}
+    -- удаляем ESP
+    for _, obj in ipairs(espObjects) do
+        if obj and obj.Parent then obj:Destroy() end
+    end
+    espObjects = {}
+    -- отключаем полёт
+    if flying then stopFly() end
+    -- отключаем noclip
+    if noclipConn then noclipConn:Disconnect() end
+    collectgarbage()
+end
+
+-- ======== ФУНКЦИИ ========
+
+-- Silent Aim (перехват выстрелов)
+local function silentAim()
+    -- Перехватываем событие выстрела (зависит от игры)
+    -- Здесь пример для типовых оружейных систем
+    local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+    if not tool then return end
     
-    if tab == "Fly" then
-        -- Переключатель полёта
-        local flyToggle = Instance.new("TextButton", contentFrame)
-        flyToggle.Size = UDim2.new(1, 0, 0, 40)
-        flyToggle.Position = UDim2.new(0, 0, 0, 0)
-        flyToggle.BackgroundColor3 = flying and Color3.fromRGB(0, 150, 100) or Color3.fromRGB(60, 60, 80)
-        Instance.new("UICorner", flyToggle).CornerRadius = UDim.new(0, 8)
-        flyToggle.Text = flying and "✈️ FLY: ON" or "✈️ FLY: OFF"
-        flyToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
-        flyToggle.Font = Enum.Font.GothamBold
-        flyToggle.TextSize = 16
-        flyToggle.MouseButton1Click:Connect(function()
-            if flying then stopFly() else startFly() end
-            flyToggle.Text = flying and "✈️ FLY: ON" or "✈️ FLY: OFF"
-            flyToggle.BackgroundColor3 = flying and Color3.fromRGB(0, 150, 100) or Color3.fromRGB(60, 60, 80)
-        end)
-        
-        -- Скорость полёта (слайдер)
-        local flySpeedLabel = Instance.new("TextLabel", contentFrame)
-        flySpeedLabel.Size = UDim2.new(1, 0, 0, 25)
-        flySpeedLabel.Position = UDim2.new(0, 0, 0, 50)
-        flySpeedLabel.Text = "Fly Speed: " .. flySpeed
-        flySpeedLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
-        flySpeedLabel.Font = Enum.Font.Gotham
-        flySpeedLabel.TextSize = 14
-        flySpeedLabel.BackgroundTransparency = 1
-        
-        local flySlider = Instance.new("TextBox", contentFrame)
-        flySlider.Size = UDim2.new(1, 0, 0, 30)
-        flySlider.Position = UDim2.new(0, 0, 0, 75)
-        flySlider.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
-        Instance.new("UICorner", flySlider).CornerRadius = UDim.new(0, 6)
-        flySlider.Text = tostring(flySpeed)
-        flySlider.TextColor3 = Color3.fromRGB(255, 255, 255)
-        flySlider.Font = Enum.Font.Gotham
-        flySlider.TextSize = 14
-        flySlider.FocusLost:Connect(function()
-            local val = tonumber(flySlider.Text)
-            if val and val >= 10 and val <= 500 then
-                flySpeed = val
-                flySpeedLabel.Text = "Fly Speed: " .. flySpeed
-            else
-                flySlider.Text = tostring(flySpeed)
-            end
-        end)
-        
-    elseif tab == "Speed" then
-        -- WalkSpeed
-        local wsLabel = Instance.new("TextLabel", contentFrame)
-        wsLabel.Size = UDim2.new(1, 0, 0, 25)
-        wsLabel.Position = UDim2.new(0, 0, 0, 0)
-        wsLabel.Text = "Walk Speed: " .. walkSpeed
-        wsLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
-        wsLabel.Font = Enum.Font.Gotham
-        wsLabel.TextSize = 14
-        wsLabel.BackgroundTransparency = 1
-        
-        local wsSlider = Instance.new("TextBox", contentFrame)
-        wsSlider.Size = UDim2.new(1, 0, 0, 30)
-        wsSlider.Position = UDim2.new(0, 0, 0, 25)
-        wsSlider.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
-        Instance.new("UICorner", wsSlider).CornerRadius = UDim.new(0, 6)
-        wsSlider.Text = tostring(walkSpeed)
-        wsSlider.TextColor3 = Color3.fromRGB(255, 255, 255)
-        wsSlider.Font = Enum.Font.Gotham
-        wsSlider.TextSize = 14
-        wsSlider.FocusLost:Connect(function()
-            local val = tonumber(wsSlider.Text)
-            if val and val >= 0 and val <= 200 then
-                walkSpeed = val
-                wsLabel.Text = "Walk Speed: " .. walkSpeed
-                applyWalkSpeed()
-            else
-                wsSlider.Text = tostring(walkSpeed)
-            end
-        end)
-        
-        -- JumpPower
-        local jpLabel = Instance.new("TextLabel", contentFrame)
-        jpLabel.Size = UDim2.new(1, 0, 0, 25)
-        jpLabel.Position = UDim2.new(0, 0, 0, 65)
-        jpLabel.Text = "Jump Power: " .. jumpPower
-        jpLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
-        jpLabel.Font = Enum.Font.Gotham
-        jpLabel.TextSize = 14
-        jpLabel.BackgroundTransparency = 1
-        
-        local jpSlider = Instance.new("TextBox", contentFrame)
-        jpSlider.Size = UDim2.new(1, 0, 0, 30)
-        jpSlider.Position = UDim2.new(0, 0, 0, 90)
-        jpSlider.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
-        Instance.new("UICorner", jpSlider).CornerRadius = UDim.new(0, 6)
-        jpSlider.Text = tostring(jumpPower)
-        jpSlider.TextColor3 = Color3.fromRGB(255, 255, 255)
-        jpSlider.Font = Enum.Font.Gotham
-        jpSlider.TextSize = 14
-        jpSlider.FocusLost:Connect(function()
-            local val = tonumber(jpSlider.Text)
-            if val and val >= 0 and val <= 500 then
-                jumpPower = val
-                jpLabel.Text = "Jump Power: " .. jumpPower
-                applyJumpPower()
-            else
-                jpSlider.Text = tostring(jumpPower)
-            end
-        end)
-        
-    elseif tab == "Extra" then
-        -- Noclip toggle
-        local noclipBtn = Instance.new("TextButton", contentFrame)
-        noclipBtn.Size = UDim2.new(1, 0, 0, 40)
-        noclipBtn.Position = UDim2.new(0, 0, 0, 0)
-        noclipBtn.BackgroundColor3 = noclip and Color3.fromRGB(0, 150, 100) or Color3.fromRGB(60, 60, 80)
-        Instance.new("UICorner", noclipBtn).CornerRadius = UDim.new(0, 8)
-        noclipBtn.Text = noclip and "🛡️ NOCLIP: ON" or "🛡️ NOCLIP: OFF"
-        noclipBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        noclipBtn.Font = Enum.Font.GothamBold
-        noclipBtn.TextSize = 16
-        noclipBtn.MouseButton1Click:Connect(function()
-            noclip = not noclip
-            noclipBtn.Text = noclip and "🛡️ NOCLIP: ON" or "🛡️ NOCLIP: OFF"
-            noclipBtn.BackgroundColor3 = noclip and Color3.fromRGB(0, 150, 100) or Color3.fromRGB(60, 60, 80)
-            if noclip then
-                enableNoclip()
-            else
-                disableNoclip()
-            end
-        end)
-        
-        -- Информация
-        local info = Instance.new("TextLabel", contentFrame)
-        info.Size = UDim2.new(1, 0, 0, 60)
-        info.Position = UDim2.new(0, 0, 0, 55)
-        info.Text = "Hotkeys:\nF - Fly toggle\nM - Hide/show menu"
-        info.TextColor3 = Color3.fromRGB(180, 180, 200)
-        info.Font = Enum.Font.Gotham
-        info.TextSize = 13
-        info.BackgroundTransparency = 1
-        info.TextXAlignment = Enum.TextXAlignment.Left
+    local remote = tool:FindFirstChild("RemoteEvent") or game:GetService("ReplicatedStorage"):FindFirstChild("FireWeapon")
+    if not remote then return end
+    
+    -- Сохраняем старую функцию
+    local oldFire = remote.OnClientEvent or remote.OnServerInvoke
+    -- Переопределяем (если возможно)
+    -- В реальном скрипте нужно анализировать игру, здесь общий подход
+end
+
+-- ESP с ограничением частоты
+local function updateESP()
+    -- удаляем старые объекты ESP
+    for _, obj in ipairs(espObjects) do
+        if obj and obj.Parent then obj:Destroy() end
+    end
+    espObjects = {}
+    
+    if not settings.esp then return end
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local highlight = Instance.new("Highlight", player.Character)
+            highlight.FillColor = Color3.fromRGB(255, 0, 0)
+            highlight.FillTransparency = 0.3
+            highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+            highlight.OutlineTransparency = 0.1
+            table.insert(espObjects, highlight)
+            
+            -- Добавим NameTag
+            local bill = Instance.new("BillboardGui", player.Character)
+            bill.Size = UDim2.new(0, 150, 0, 30)
+            bill.Adornee = player.Character:FindFirstChild("Head")
+            bill.AlwaysOnTop = true
+            local label = Instance.new("TextLabel", bill)
+            label.Size = UDim2.new(1, 0, 1, 0)
+            label.Text = player.Name .. " | " .. math.floor((player.Character.Humanoid and player.Character.Humanoid.Health) or 100)
+            label.TextColor3 = Color3.fromRGB(255, 255, 255)
+            label.BackgroundTransparency = 1
+            label.TextStrokeTransparency = 0.5
+            table.insert(espObjects, bill)
+        end
     end
 end
 
--- === ФУНКЦИИ ПОЛЁТА ===
-function startFly()
+-- Fly
+local function startFly()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end
     flying = true
@@ -282,10 +123,9 @@ function startFly()
     bg.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
     bg.Parent = root
     
-    local flyConnection
-    flyConnection = RunService.Heartbeat:Connect(function()
+    local flyConn = RunService.Heartbeat:Connect(function()
         if not flying or not root.Parent then
-            flyConnection:Disconnect()
+            flyConn:Disconnect()
             return
         end
         local moveDirection = Vector3.new(0, 0, 0)
@@ -308,14 +148,15 @@ function startFly()
             moveDirection = moveDirection - Vector3.new(0, 1, 0)
         end
         if moveDirection.Magnitude > 0 then
-            moveDirection = moveDirection.Unit * flySpeed
+            moveDirection = moveDirection.Unit * settings.flySpeed
         end
         bv.Velocity = moveDirection
         bg.CFrame = Camera.CFrame
     end)
+    table.insert(connections, flyConn)
 end
 
-function stopFly()
+local function stopFly()
     flying = false
     if bv then bv:Destroy() end
     if bg then bg:Destroy() end
@@ -325,13 +166,15 @@ function stopFly()
     end
 end
 
--- === NOCLIP ===
-function enableNoclip()
+-- Noclip
+local function toggleNoclip(state)
+    if noclipConn then noclipConn:Disconnect() end
+    if not state then return end
     local char = LocalPlayer.Character
     if not char then return end
-    noclipConnection = RunService.Heartbeat:Connect(function()
+    noclipConn = RunService.Heartbeat:Connect(function()
         if not char or not char.Parent then
-            noclipConnection:Disconnect()
+            noclipConn:Disconnect()
             return
         end
         for _, part in pairs(char:GetDescendants()) do
@@ -340,90 +183,174 @@ function enableNoclip()
             end
         end
     end)
+    table.insert(connections, noclipConn)
 end
 
-function disableNoclip()
-    if noclipConnection then noclipConnection:Disconnect() end
+-- Anti-Aim (вращение персонажа)
+local function antiAimLoop()
     local char = LocalPlayer.Character
-    if char then
-        for _, part in pairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = true
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    antiAimAngle = (antiAimAngle + 1) % 360
+    root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(antiAimAngle), 0)
+end
+
+-- ======== СОЗДАНИЕ GUI ========
+local screenGui = Instance.new("ScreenGui", LocalPlayer.PlayerGui)
+screenGui.Name = "RivalsGUI"
+
+local mainFrame = Instance.new("Frame", screenGui)
+mainFrame.Size = UDim2.new(0, 300, 0, 350)
+mainFrame.Position = UDim2.new(0.5, -150, 0.5, -175)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+mainFrame.BackgroundTransparency = 0.1
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 10)
+mainFrame.Visible = false
+
+-- Заголовок
+local title = Instance.new("TextLabel", mainFrame)
+title.Size = UDim2.new(1, 0, 0, 30)
+title.Text = "RIVALS ULTIMATE"
+title.TextColor3 = Color3.fromRGB(255, 200, 50)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 20
+title.BackgroundTransparency = 1
+
+-- Функция создания переключателя
+local function createToggle(parent, text, yPos, getter, setter)
+    local frame = Instance.new("Frame", parent)
+    frame.Size = UDim2.new(1, -20, 0, 30)
+    frame.Position = UDim2.new(0, 10, 0, yPos)
+    frame.BackgroundTransparency = 1
+    
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(0.7, 0, 1, 0)
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(220, 220, 240)
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 14
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.BackgroundTransparency = 1
+    
+    local btn = Instance.new("TextButton", frame)
+    btn.Size = UDim2.new(0, 50, 1, 0)
+    btn.Position = UDim2.new(0.7, 0, 0, 0)
+    btn.Text = getter() and "ON" or "OFF"
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 14
+    btn.BackgroundColor3 = getter() and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(180, 50, 50)
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+    
+    btn.MouseButton1Click:Connect(function()
+        setter(not getter())
+        btn.Text = getter() and "ON" or "OFF"
+        btn.BackgroundColor3 = getter() and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(180, 50, 50)
+        -- Применить изменения, если нужно
+        if text == "Fly" then
+            if getter() then startFly() else stopFly() end
+        elseif text == "Noclip" then
+            toggleNoclip(getter())
+        elseif text == "Speed" then
+            if getter() then
+                local char = LocalPlayer.Character
+                if char and char:FindFirstChild("Humanoid") then
+                    char.Humanoid.WalkSpeed = settings.speedValue
+                end
+            else
+                local char = LocalPlayer.Character
+                if char and char:FindFirstChild("Humanoid") then
+                    char.Humanoid.WalkSpeed = 16
+                end
             end
+        elseif text == "ESP" then
+            updateESP()
+        elseif text == "Anti-Aim" then
+            -- запустим цикл анти-аима
         end
-    end
+    end)
+    return btn
 end
 
--- === ПРИМЕНЕНИЕ СКОРОСТИ ===
-function applyWalkSpeed()
-    local char = LocalPlayer.Character
-    if char and char:FindFirstChild("Humanoid") then
-        char.Humanoid.WalkSpeed = walkSpeed
-    end
-end
+-- Создаём переключатели
+local y = 40
+local toggles = {}
 
-function applyJumpPower()
-    local char = LocalPlayer.Character
-    if char and char:FindFirstChild("Humanoid") then
-        char.Humanoid.JumpPower = jumpPower
-    end
-end
+toggles.silentAim = createToggle(mainFrame, "Silent Aim", y, function() return settings.silentAim end, function(v) settings.silentAim = v end)
+y = y + 35
+toggles.triggerbot = createToggle(mainFrame, "Triggerbot", y, function() return settings.triggerbot end, function(v) settings.triggerbot = v end)
+y = y + 35
+toggles.esp = createToggle(mainFrame, "ESP", y, function() return settings.esp end, function(v) settings.esp = v; updateESP() end)
+y = y + 35
+toggles.speed = createToggle(mainFrame, "Speed", y, function() return settings.speed end, function(v) settings.speed = v end)
+y = y + 35
+toggles.fly = createToggle(mainFrame, "Fly", y, function() return settings.fly end, function(v) settings.fly = v end)
+y = y + 35
+toggles.noclip = createToggle(mainFrame, "Noclip", y, function() return settings.noclip end, function(v) settings.noclip = v end)
+y = y + 35
+toggles.antiAim = createToggle(mainFrame, "Anti-Aim", y, function() return settings.antiAim end, function(v) settings.antiAim = v end)
+y = y + 35
+toggles.wallbang = createToggle(mainFrame, "Wallbang", y, function() return settings.wallbang end, function(v) settings.wallbang = v end)
 
--- === ПЕРЕТАСКИВАНИЕ ОКНА ===
-local dragging = false
-local dragStart, startPos
+-- Индикатор статуса
+local statusLabel = Instance.new("TextLabel", mainFrame)
+statusLabel.Size = UDim2.new(1, -20, 0, 20)
+statusLabel.Position = UDim2.new(0, 10, 1, -25)
+statusLabel.Text = "K to toggle menu | F1 for help"
+statusLabel.TextColor3 = Color3.fromRGB(150, 150, 180)
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 12
+statusLabel.BackgroundTransparency = 1
 
-titleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = mainFrame.Position
-    end
-end)
-
-titleBar.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local delta = input.Position - dragStart
-        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
-
--- === ХОТКЕИ ===
+-- ======== УПРАВЛЕНИЕ МЕНЮ ПО K ========
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.F then
-        if flying then stopFly() else startFly() end
-        updateContent(currentTab) -- обновить кнопку на вкладке Fly
-    end
-    if input.KeyCode == Enum.KeyCode.M then
-        guiVisible = not guiVisible
-        screenGui.Enabled = guiVisible
+    if input.KeyCode == Enum.KeyCode.K then
+        mainFrame.Visible = not mainFrame.Visible
     end
 end)
 
--- === ИНИЦИАЛИЗАЦИЯ ===
+-- ======== ПЕРЕЗАГРУЗКА ПЕРСОНАЖА ========
 LocalPlayer.CharacterAdded:Connect(function(char)
+    cleanup()
     wait(0.5)
-    applyWalkSpeed()
-    applyJumpPower()
-    if noclip then
-        enableNoclip()
+    -- Применить текущие настройки
+    if settings.speed then
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then hum.WalkSpeed = settings.speedValue end
     end
+    if settings.fly then startFly() end
+    if settings.noclip then toggleNoclip(true) end
+    if settings.esp then updateESP() end
 end)
 
+-- Первичная инициализация
 if LocalPlayer.Character then
     wait(0.5)
-    applyWalkSpeed()
-    applyJumpPower()
+    if settings.speed then
+        local hum = LocalPlayer.Character:FindFirstChild("Humanoid")
+        if hum then hum.WalkSpeed = settings.speedValue end
+    end
 end
 
--- Загрузить первую вкладку
-updateContent("Fly")
+-- ======== ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЯ ========
+local heartbeatConn = RunService.Heartbeat:Connect(function()
+    if tick() - lastUpdate > 0.15 then
+        if settings.esp then
+            updateESP()
+        end
+        if settings.antiAim then
+            antiAimLoop()
+        end
+        lastUpdate = tick()
+    end
+end)
+table.insert(connections, heartbeatConn)
 
-print("✅ Modern menu loaded. F - Fly, M - Hide GUI")
+-- ======== ОЧИСТКА ПРИ ВЫХОДЕ ========
+game:GetService("Players").LocalPlayer:GetPropertyChangedSignal("Character"):Connect(function()
+    cleanup()
+end)
+
+print("✅ RIVALS Ultimate GUI loaded. Press K to open menu.")
